@@ -1,0 +1,117 @@
+---
+title: "Accelerometer-pml"
+output: html_document
+---
+
+##Summary:
+Using devices such as Jawbone Up, Nike FuelBand, and Fitbit it is now possible to collect a large amount of data about personal activity relatively inexpensively. These type of devices are part of the quantified self movement - a group of enthusiasts who take measurements about themselves regularly to improve their health, to find patterns in their behavior, or because they are tech geeks. One thing that people regularly do is quantify how much of a particular activity they do, but they rarely quantify how well they do it. In this project, your goal will be to use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants. They were asked to perform barbell lifts correctly and incorrectly in 5 different ways. More information is available from the website here: http://groupware.les.inf.puc-rio.br/har (see the section on the Weight Lifting Exercise Dataset)
+
+
+##Load data 
+Training data set has 19622 obs. of 160 variables, including outcome variable "classe", which is a factor with 5 Levels: A B C D E.
+Testing data set has 20 observation of 160 variables.
+
+```{r}
+library(caret)
+library(rpart)
+library(randomForest)
+```
+
+
+```{r,echo=FALSE, cache=TRUE}
+trainURL <- "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv"
+training <- read.csv(url(trainURL))
+testURL <- "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv"
+testing <- read.csv(url(testURL))
+unique(training$classe)
+```
+##Perprocess, Cleaniing data
+
+###1. Removing variable "X" in training data set
+This variable is just a counter and should not affect the model.
+
+```{r}
+training1 <- training[,-1]
+
+```
+
+###2. Removing near zero variance predictors
+Some of these variables have variance near zero, which don't affect the model significantly. Therefore after loading csv training we can identify and remove the  near zero variance predictors the "nearZeroVar" function from "caret" package. Only 99 of 159 variables in training set have significant variance.
+
+```{r,cache=TRUE}
+nzv <- nearZeroVar(training1,saveMetrics=TRUE)
+trainingNzv <- training1[, nzv$nzv==F]
+# 60 variables have zero near variance
+dim(trainingNzv)
+sum(nzv$nzv)
+
+```
+###3. Removing variables with majority NA values
+Some column data have a large number of NA which can be misleading if using it as predictor. There are 41 predictor with majority of NA in trainingNZV data set. If removing this predictor there are only 57 predictor left in data set. 
+
+```{r}
+naRatio <- apply(trainingNzv, 2, function(x) sum(is.na(x))/nrow(trainingNzv))
+head(unique(naRatio))
+sum(naRatio > 0.5)
+training2 <- trainingNzv[,naRatio < 0.5]
+```
+We need to do the same transformation on the testing set. Resulted data set after transformation named testingT in this report. This data set has 20 observation of 57 variables (predictors).
+
+```{r}
+#save variable names
+varName <- names(training2[,-58])
+testingT <- testing[,c(varName)]
+#confirm predictor names are the same
+cbind(names(training2[,-58]), names(testingT))
+# confirm class of predictors are the same
+# Using rbind to coerce classes of second arg (testingT)
+testingT <- rbind(training2[5,-58], testingT)
+# remove the added dummy row
+testingT <- testingT[-1,]
+```
+##Cross Validation
+Dividing training2 set to train2 and test2 data set, we can train model on train2 and validate it on test2 data set, before applying algorithm on testing data set.
+
+```{r, echo=FALSE}
+inTrain <- createDataPartition(y = training2$classe, p =  0.7, list = FALSE)
+train2 <- training2[inTrain,]; test2 <- training2[-inTrain,]
+```
+
+##Model Fit
+
+###Decision Tree
+
+
+Using rpart package modelfit for decision tree will result to accuracy: 0.8646 for prediction on test2 sample data. 
+
+
+```{r, cache=TRUE}
+set.seed(2233)
+modFitDT <- rpart(classe~., data = train2, method = "class")
+predDT <- predict(modFitDT,test2,  type = "class")
+confusionMatrix(predDT, test2$classe)
+```
+
+
+###Random Forest
+Using randomForest package and function we can get accuracy of Accuracy : 0.9993 in prediction on test2 data set. Therefore randomForest method results a better result and less out of sample error.
+
+```{r, cache=TRUE}
+set.seed(3344)
+modFitRF <- randomForest(classe~., data = train2)
+predRF <- predict(modFitRF,test2,  type = "class")
+confusionMatrix(predRF, test2$classe)
+```
+
+##Predicting classe on testing data
+
+In this section we use randomForest modelFit which resulted better accracy on cross validated subsets of training data. Results of applying this model to testingT (transformed testing set) is shown below and also saved as Predicted_Classe_Testing.csv file.
+
+```{r}
+predFinal <- predict(modFitRF, testingT, type = "class")
+# outcome of 20 samples in testing data set
+Pred_testing <- data.frame(problem_id = testing$problem_id, classe= predFinal)
+print(Pred_testing, row.names = FALSE)
+write.csv(Pred_testing, file = "Predicted_Classe_Testing.csv",row.names = FALSE)
+```
+
